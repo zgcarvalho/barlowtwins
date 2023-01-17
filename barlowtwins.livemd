@@ -1,0 +1,121 @@
+# Barlow Twins
+
+```elixir
+Mix.install([
+  {:axon, "~>0.3"},
+  {:nx, "~>0.4.2"},
+  {:exla, "~>0.4.2"},
+  {:bumblebee, "~> 0.1.2"},
+  {:kino, "~> 0.7.0"}
+])
+
+Nx.global_default_backend(EXLA.Backend)
+```
+
+## Introduction
+
+
+
+## Base model
+
+
+
+```elixir
+{:ok, resnet} = Bumblebee.load_model({:hf, "microsoft/resnet-50"}, architecture: :base)
+```
+
+```elixir
+Axon.get_inputs(resnet.model)
+```
+
+```elixir
+defmodule BarlowTwins.Data do
+end
+```
+
+```elixir
+defmodule BarlowTwins do
+  import Nx.Defn
+
+  def create_model() do
+    {:ok, resnet} = Bumblebee.load_model({:hf, "microsoft/resnet-50"}, architecture: :base)
+    model = resnet.model
+    # |> Axon.Layers.flatten()
+    # |> Axon.Layers.batch_norm()
+    {model, resnet.params}
+  end
+
+  defn norm(z) do
+    z
+    |> Nx.subtract(Nx.mean(z, axes: [0]))
+    |> Nx.divide(Nx.standard_deviation(z, axes: [0]))
+  end
+
+  defn on_diagonal(c) do
+    c
+    |> Nx.take_diagonal()
+    |> Nx.add(-1)
+    |> Nx.power(2)
+    |> Nx.sum()
+  end
+
+  defn off_diagonal(c) do
+    {dim, _} = Nx.shape(c)
+
+    c
+    |> Nx.put_diagonal(Nx.broadcast(0, {dim}))
+    |> Nx.power(2)
+    |> Nx.sum()
+  end
+
+  defn loss(z1, z2, lambda) do
+    {batch_len, dim} = Nx.shape(z1)
+    c = Nx.dot(Nx.transpose(norm(z1)), norm(z2))
+    on_diagonal(c) + lambda * off_diagonal(c)
+  end
+
+  def train(model, params) do
+    model
+    |> Axon.Loop.trainer(Module.loss(), :adam)
+    |> Axon.Loop.run(
+      BarlowTwins.Data.train_data(),
+      params,
+      epochs: 3,
+      compiler: EXLA
+    )
+  end
+end
+```
+
+```elixir
+BarlowTwins.on_diagonal(Nx.iota({2, 2}))
+```
+
+```elixir
+BarlowTwins.off_diagonal(Nx.iota({2, 2}))
+```
+
+```elixir
+BarlowTwins.norm(Nx.iota({3, 3}))
+```
+
+```elixir
+BarlowTwins.loss(Nx.iota({3, 3}), Nx.iota({3, 3}), 1.0)
+```
+
+```elixir
+input = Nx.random_uniform({1, 224, 224, 3})
+```
+
+```elixir
+{model, params} = BarlowTwins.create_model()
+```
+
+```elixir
+Axon.predict(model, params, input)
+# |> Axon.flatten()
+```
+
+```elixir
+
+```
